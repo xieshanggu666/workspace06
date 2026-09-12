@@ -71,11 +71,11 @@
           tip('yourturn', '【轮到你了】点击场上任意一个词作为连接点，再点「接词」。也可以点「加固」保护自己的关键连接。');
         }
       }
-      // 有人新接了词
-      if (prev && cur.nodes.length > prev.nodes.length) {
-        const n = cur.nodes[cur.nodes.length - 1];
-        if (n.ownerId !== cur.you) {
-          tip('challenge', `【可以质疑】对手接出了「${n.word}」。如果你认为关系不成立，点击词上的「质疑」标记，由裁定者按规则判定。`);
+      // 有对手新接了词（起始词等中立词不算）
+      if (prev) {
+        const newOpp = WTTips.findNewOpponentWords(prev.nodes, cur.nodes, cur.you);
+        if (newOpp.length) {
+          tip('challenge', `【可以质疑】对手接出了「${newOpp[0].word}」。如果你认为关系不成立，点击词上的「质疑」标记，由裁定者按规则判定。`);
         }
       }
     }
@@ -96,13 +96,15 @@
     }
   }
 
-  function tip(key, text) {
-    if (store.seenTips.includes(key)) return;
-    store.addSeenTip(key);
-    $('tip-text').textContent = text;
-    $('tip-box').classList.remove('hidden');
-  }
-  $('tip-ok').onclick = () => $('tip-box').classList.add('hidden');
+  // 教学提示：排队展示，关闭时才记为已读
+  const tipQueue = WTTips.createTipQueue({
+    isSeen: (key) => store.seenTips.includes(key),
+    markSeen: (key) => store.addSeenTip(key),
+    show: (text) => { $('tip-text').textContent = text; $('tip-box').classList.remove('hidden'); },
+    hide: () => $('tip-box').classList.add('hidden'),
+  });
+  const tip = (key, text) => tipQueue.push(key, text);
+  $('tip-ok').onclick = () => tipQueue.dismiss();
 
   function toast(text) {
     const el = document.createElement('div');
