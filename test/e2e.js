@@ -62,24 +62,34 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await active.waitFor(c => c.state.nodes.some(n => n.word === '篝火'));
   check('接词成链', active.state.turn.apLeft === 1);
 
-  // 对方质疑「火焰」
+  // 质疑发起并暂停计时
   other.send({ type: 'challenge', nodeId: n1.id });
   await other.waitFor(c => c.state.pendingChallenge);
   check('质疑发起并暂停计时', other.state.turn.deadline === null);
   check('裁定者是房主', other.state.pendingChallenge.adjudicatorId === A.state.you);
 
+  // 裁定者（房主）在待裁定状态下断开重连——模拟关掉弹窗/刷新页面后仍能回到裁定
+  const tokenA = A.token;
+  A.ws.close();
+  await sleep(300);
+  const A1 = client('甲');
+  await A1.opened;
+  A1.send({ type: 'reconnect', token: tokenA });
+  await A1.waitFor(c => c.state && c.state.pendingChallenge);
+  check('重连后待裁定状态仍在', A1.state.pendingChallenge.adjudicatorId === A1.state.you);
+
   // 裁定不成立 → 词保留
-  A.send({ type: 'resolve', verdict: 'reject' });
-  await A.waitFor(c => !c.state.pendingChallenge);
-  check('裁定后计时恢复', !!A.state.turn.deadline);
-  check('词保留', A.state.nodes.some(n => n.word === '火焰'));
+  A1.send({ type: 'resolve', verdict: 'reject' });
+  await A1.waitFor(c => !c.state.pendingChallenge);
+  check('重连后裁定成功，计时恢复', !!A1.state.turn.deadline);
+  check('词保留', A1.state.nodes.some(n => n.word === '火焰'));
 
   // 加固「篝火」然后结束回合
-  const n2 = A.state.nodes.find(n => n.word === '篝火');
-  active.send({ type: 'reinforce', nodeId: n2.id });
-  await active.waitFor(c => c.state.nodes.find(n => n.word === '篝火').reinforced);
+  const n2 = A1.state.nodes.find(n => n.word === '篝火');
+  A1.send({ type: 'reinforce', nodeId: n2.id });
+  await A1.waitFor(c => c.state.nodes.find(n => n.word === '篝火').reinforced);
   check('加固成功', true);
-  active.send({ type: 'endTurn' });
+  A1.send({ type: 'endTurn' });
   await other.waitFor(c => c.state.turn.playerId === other.state.you);
   check('回合切换', true);
 
@@ -87,32 +97,32 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const tokenB = B.token;
   B.ws.close();
   await sleep(300);
-  check('断线被标记', A.state.players.find(p => p.name === '乙') && true);
+  check('断线被标记', A1.state.players.find(p => p.name === '乙') && true);
   const B2 = client('乙');
   await B2.opened;
   B2.send({ type: 'reconnect', token: tokenB });
   await B2.waitFor(c => c.state && c.state.phase === 'playing');
-  check('断线重连恢复局面', B2.state.nodes.length === A.state.nodes.length);
+  check('断线重连恢复局面', B2.state.nodes.length === A1.state.nodes.length);
 
   // 快进结束：轮流空过
   let guard = 0;
-  while (A.state.phase === 'playing' && guard < 50) {
+  while (A1.state.phase === 'playing' && guard < 50) {
     guard++;
-    const cur = A.state.turn.playerId === A.state.you ? A : B2;
+    const cur = A1.state.turn.playerId === A1.state.you ? A1 : B2;
     cur.send({ type: 'endTurn' });
     await sleep(120);
   }
-  await A.waitFor(c => c.state.phase === 'ended');
-  check('游戏结束并结算', Array.isArray(A.state.scores) && A.state.scores.length === 2);
-  console.log('  结算:', A.state.scores.map(s => `${s.name}:${s.total}`).join(' '));
+  await A1.waitFor(c => c.state.phase === 'ended');
+  check('游戏结束并结算', Array.isArray(A1.state.scores) && A1.state.scores.length === 2);
+  console.log('  结算:', A1.state.scores.map(s => `${s.name}:${s.total}`).join(' '));
 
   // 回放
-  A.send({ type: 'replay' });
-  await A.waitFor(c => c.msgs.some(m => m.type === 'replay'));
-  const frames = A.msgs.find(m => m.type === 'replay').frames;
+  A1.send({ type: 'replay' });
+  await A1.waitFor(c => c.msgs.some(m => m.type === 'replay'));
+  const frames = A1.msgs.find(m => m.type === 'replay').frames;
   check('回放帧可用', frames.length > 5 && frames[frames.length - 1].scores);
 
-  A.ws.close(); B2.ws.close();
+  A1.ws.close(); B2.ws.close();
   console.log(failures === 0 ? '\n全部通过' : `\n${failures} 项失败`);
   process.exit(failures === 0 ? 0 : 1);
 })().catch(e => { console.error('冒烟测试异常:', e.message); process.exit(1); });

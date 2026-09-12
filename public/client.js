@@ -82,10 +82,9 @@
     // 质疑出现
     if (cur.pendingChallenge && (!prev || !prev.pendingChallenge)) {
       const ch = cur.pendingChallenge;
-      const node = cur.nodes.find(n => n.id === ch.nodeId);
       if (ch.adjudicatorId === cur.you) {
         tip('judge', '【请你裁定】对照本局规则，判断这条连接是否成立。裁定结果立即生效，计时已暂停。');
-        openJudge(ch, node, cur);
+        openJudge();
       } else {
         const who = playerName(cur, ch.challengerId);
         toast(`${who} 发起了质疑，等待裁定…`);
@@ -184,6 +183,22 @@
         <span class="dot" style="background:${p.color}"></span>${esc(p.name)} · ${words} 词
         ${p.connected ? '' : '<span class="offline">离线</span>'}</span>`;
     }).join('');
+
+    // 待裁定横幅：常显入口，防止弹窗被关掉后整局卡住
+    const ch = state.pendingChallenge;
+    if (ch) {
+      const iAmJudge = ch.adjudicatorId === state.you;
+      const node = state.nodes.find(n => n.id === ch.nodeId);
+      $('challenge-banner-text').textContent = iAmJudge
+        ? `有质疑等待你裁定${node ? `（目标：${node.word}）` : ''}，裁定前对局暂停`
+        : `等待 ${playerName(state, ch.adjudicatorId)} 裁定质疑…`;
+      $('btn-goto-judge').classList.toggle('hidden', !iAmJudge);
+      $('challenge-banner').classList.remove('hidden');
+      // 裁定者每次状态刷新都确保弹窗开着
+      if (iAmJudge) openJudge();
+    } else {
+      $('challenge-banner').classList.add('hidden');
+    }
 
     renderBoard($('board'), state.nodes, {
       selectable: active,
@@ -353,18 +368,24 @@
     closeDialog('dlg-challenge');
   };
 
-  function openJudge(ch, node, cur) {
+  function openJudge() {
+    const ch = state && state.pendingChallenge;
+    if (!ch) return;
+    const node = state.nodes.find(n => n.id === ch.nodeId);
     if (!node) return;
-    const rel = (cur.relationTypes.find(r => r.id === node.relation) || {}).name || '';
-    const parent = cur.nodes.find(n => n.id === node.parentId);
+    const rel = (state.relationTypes.find(r => r.id === node.relation) || {}).name || '';
+    const parent = state.nodes.find(n => n.id === node.parentId);
     $('judge-detail').innerHTML =
-      `<p><b>${esc(playerName(cur, ch.challengerId))}</b> 质疑了
-       <b>${esc(playerName(cur, node.ownerId))}</b> 的连接：</p>
+      `<p><b>${esc(playerName(state, ch.challengerId))}</b> 质疑了
+       <b>${esc(playerName(state, node.ownerId))}</b> 的连接：</p>
        <p style="margin:8px 0">「${parent ? esc(parent.word) : '?'}」—<b>${rel}</b>→「${esc(node.word)}」</p>
        <p>解释：${esc(node.reason)}</p>`;
-    $('judge-rules').innerHTML = rulesSummary(cur.ruleSet);
-    openDialog('dlg-judge');
+    $('judge-rules').innerHTML = rulesSummary(state.ruleSet);
+    if (!$('dlg-judge').open) openDialog('dlg-judge');
   }
+  // 裁定未作出前不允许关闭弹窗（Esc / 取消），避免整局卡死
+  $('dlg-judge').addEventListener('cancel', (e) => e.preventDefault());
+  $('btn-goto-judge').onclick = () => openJudge();
   $('judge-uphold').onclick = () => { send({ type: 'resolve', verdict: 'uphold' }); closeDialog('dlg-judge'); };
   $('judge-reject').onclick = () => { send({ type: 'resolve', verdict: 'reject' }); closeDialog('dlg-judge'); };
 

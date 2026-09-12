@@ -145,6 +145,49 @@ test('断线重连后玩家状态保留', () => {
   assert.strictEqual(room.phase, 'playing');
 });
 
+test('裁定者掉线后裁定权移交给在线玩家', () => {
+  const room = makeRoom(['甲', '乙', '丙']);
+  playOk(room, '开心'); // p0（房主）的词
+  const n1 = room.nodes.find(n => n.word === '开心');
+  g.challenge(room, 'p1', n1.id);
+  const adj = room.pendingChallenge.adjudicatorId;
+  assert.strictEqual(adj, 'p2'); // 顺延给丙
+  // 丙掉线 → 应移交（此时只有 p1 在线且合格？p1 是质疑者，不合格；无合格人选则保持）
+  room.players.find(p => p.id === 'p2').connected = false;
+  assert.strictEqual(g.ensureAdjudicatorOnline(room), false, '无合格人选时保持不变');
+  // 丙恢复在线后又掉线，乙完成行动… 改测：让丙不是唯一人选——先让 p2 在线，p1 掉线不影响
+  room.players.find(p => p.id === 'p2').connected = true;
+  assert.strictEqual(g.ensureAdjudicatorOnline(room), false, '裁定者在线时不移交');
+});
+
+test('裁定者掉线且存在合格人选时移交', () => {
+  const room = makeRoom(['甲', '乙', '丙']);
+  // 乙的词被丙质疑，裁定者是房主 p0；房主掉线后应移交给在线的乙？乙是词主不合格→无人可移交
+  g.endTurn(room, 'p0');
+  playOk(room, '水花'); // p1 的词
+  const n1 = room.nodes.find(n => n.word === '水花');
+  g.challenge(room, 'p2', n1.id);
+  assert.strictEqual(room.pendingChallenge.adjudicatorId, 'p0');
+  room.players.find(p => p.id === 'p0').connected = false;
+  // 合格人选：在线、非质疑者、非词主 → 无人（p1 词主，p2 质疑者）
+  assert.strictEqual(g.ensureAdjudicatorOnline(room), false);
+  // 甲的词被乙质疑，裁定者是丙；丙掉线后无其他合格人选（甲词主、乙质疑者）→ 保持
+  // 换 4 人局验证移交成功
+  const room4 = g.newRoom('TEST4', 'h', '一');
+  ['h', 'a', 'b', 'c'].forEach((id, i) => g.addPlayer(room4, id, `玩家${i}`));
+  g.startGame(room4, 'h', () => 0.01);
+  g.playWord(room4, 'h', { word: '开心', parentId: 'start0', relation: 'synonym', reason: '合理的解释' });
+  const node = room4.nodes.find(n => n.word === '开心');
+  g.challenge(room4, 'a', node.id); // 房主的词 → 顺延给非词主非质疑者：b
+  assert.strictEqual(room4.pendingChallenge.adjudicatorId, 'b');
+  room4.players.find(p => p.id === 'b').connected = false;
+  assert.strictEqual(g.ensureAdjudicatorOnline(room4), true);
+  assert.strictEqual(room4.pendingChallenge.adjudicatorId, 'c');
+  // c 可以正常裁定，对局继续
+  assert.strictEqual(g.resolveChallenge(room4, 'c', 'reject'), null);
+  assert.strictEqual(room4.pendingChallenge, null);
+});
+
 test('涉及房主的质疑由其他玩家裁定', () => {
   const room = makeRoom(['甲', '乙', '丙']);
   playOk(room, '开心'); // p0（房主）的词

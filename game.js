@@ -269,6 +269,21 @@ function cascadeRemove(room, nodeId, removed) {
   }
 }
 
+// 裁定者掉线时，把裁定权移交给在线的合格玩家，避免对局卡死
+function ensureAdjudicatorOnline(room) {
+  const ch = room.pendingChallenge;
+  if (!ch) return false;
+  const adj = room.players.find(p => p.id === ch.adjudicatorId);
+  if (adj && adj.connected) return false;
+  const node = room.nodes.find(n => n.id === ch.nodeId);
+  const candidate = room.players.find(p =>
+    p.connected && p.id !== ch.challengerId && (!node || p.id !== node.ownerId));
+  if (!candidate) return false;
+  ch.adjudicatorId = candidate.id;
+  logEvent(room, 'adjudicator', { challengeId: ch.id, adjudicatorId: candidate.id });
+  return true;
+}
+
 // ---------- 计分 ----------
 
 function depthOf(room, node) {
@@ -381,6 +396,6 @@ function publicView(room, forPlayerId) {
 module.exports = {
   RELATION_TYPES, DEFAULT_RULESET, START_WORD_POOL,
   newRoom, addPlayer, setRuleSet, startGame,
-  playWord, reinforce, endTurn, challenge, resolveChallenge,
+  playWord, reinforce, endTurn, challenge, resolveChallenge, ensureAdjudicatorOnline,
   computeScores, buildReplay, publicView, cascadeRemove,
 };

@@ -116,10 +116,14 @@ function detachSocket(playerId, ws) {
   set.delete(ws);
   if (set.size === 0) {
     sockets.delete(playerId);
-    // 标记断线并广播
+    // 标记断线并广播；若待裁定质疑的裁定者掉线，移交裁定权
     for (const room of rooms.values()) {
       const p = room.players.find(x => x.id === playerId);
-      if (p && p.connected) { p.connected = false; broadcast(room); }
+      if (p && p.connected) {
+        p.connected = false;
+        game.ensureAdjudicatorOnline(room);
+        broadcast(room);
+      }
     }
   }
 }
